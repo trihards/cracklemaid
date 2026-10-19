@@ -1,0 +1,10 @@
+{
+  "name": "cracklemaid",
+  "private": true,
+  "type": "module",
+  "description": "A fireside sound machine. Static site, no build step.",
+  "scripts": {
+    "serve": "npx --yes http-server -c-1 -p 8080 .",
+    "render": "node tools/render.mjs"
+  }
+}

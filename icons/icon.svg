@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx=".5" cy=".62" r=".7">
+      <stop offset="0" stop-color="#5a1a22"/>
+      <stop offset=".55" stop-color="#2a0d14"/>
+      <stop offset="1" stop-color="#12070a"/>
+    </radialGradient>
+    <linearGradient id="fl" x1="0" y1="1" x2=".4" y2="0">
+      <stop offset="0" stop-color="#c63c24"/>
+      <stop offset=".45" stop-color="#f08a34"/>
+      <stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+    <linearGradient id="fin" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#f39a3b"/>
+      <stop offset="1" stop-color="#ffe3a0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="320" r="160" fill="#ff8a3c" opacity=".1"/>
+  <!-- a flame whose tip flips like a mermaid's tail -->
+  <path d="M256 424C186 424 152 372 166 318C178 274 214 250 224 212C232 184 246 166 268 152C262 180 266 202 282 226C304 258 344 290 340 336C336 390 302 424 256 424Z" fill="url(#fl)"/>
+  <path d="M265 154C268 122 292 98 326 96C306 112 296 132 294 154Z" fill="url(#fin)"/>
+  <path d="M268 158C292 136 328 134 350 152C324 154 302 160 290 176Z" fill="url(#fin)" opacity=".88"/>
+  <path d="M256 424C218 424 200 396 208 364C214 340 234 326 238 300C254 316 262 334 262 352C274 344 278 330 278 316C300 338 308 362 302 384C296 408 280 424 256 424Z" fill="#ffe7a8" opacity=".92"/>
+</svg>
