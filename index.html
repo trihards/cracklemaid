@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0604">
+<meta name="color-scheme" content="dark">
+<title>Cracklemaid</title>
+<link rel="icon" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" as="image" href="assets/art.webp">
+<link rel="preload" as="image" href="assets/logo.webp">
+<style>
+  :root {
+    --bg: #0a0604;
+    --panel: rgba(30, 15, 8, .62);
+    --line: rgba(230, 140, 80, .16);
+    --text: #d3bca6;
+    --dim: #8c7360;
+    --accent: #e39458;
+    --accent-dim: #6b3818;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--text); }   /* no body background: it would paint over the .bg art layer */
+  body {
+    font: 15px/1.4 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, sans-serif;
+    min-height: 100dvh;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    display: flex; justify-content: center;
+  }
+  main { position: relative; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 28px; }
+  header { display: flex; justify-content: center; }
+  h1 { margin: 0; line-height: 0; }
+  h1 img { width: min(240px, 64vw); height: auto; filter: drop-shadow(0 4px 18px rgba(40, 12, 0, .6)); }
+
+  /* Brand art: full strength on the splash, then dimmed to a bedside-dark backdrop */
+  .bg {
+    position: fixed; inset: 0; z-index: -1; overflow: hidden; background: var(--bg);
+  }
+  .bg img {
+    width: 100%; height: 100%; object-fit: cover; object-position: 50% 45%;
+    transform-origin: 50% 60%;
+  }
+  .bg::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(10, 6, 4, .76) 0%, rgba(10, 6, 4, .87) 45%, rgba(10, 6, 4, .95) 100%);
+    opacity: 0; transition: opacity 1.6s ease;
+  }
+  body.entered .bg::after { opacity: 1; }
+  body.playing .bg img { animation: drift 46s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform: scale(1.07) translateY(-1.5%); } }
+
+  main, footer { transition: opacity 1.2s ease .3s; }
+  body:not(.entered) main { opacity: 0; pointer-events: none; }
+
+  #splash {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    padding: max(14vh, env(safe-area-inset-top)) 16px max(6vh, env(safe-area-inset-bottom));
+    cursor: pointer; transition: opacity 1s ease;
+  }
+  #splash img { width: min(560px, 88vw); height: auto; filter: drop-shadow(0 6px 30px rgba(40, 10, 0, .6)); animation: rise 1.4s ease-out both; }
+  #splash span { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255, 236, 214, .9); padding: 10px 20px; border-radius: 999px; background: rgba(24, 10, 4, .45); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); animation: rise 1.4s ease-out .6s both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+  body.entered #splash { opacity: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) {
+    body.playing .bg img, #splash img, #splash span { animation: none; }
+  }
+
+  #play {
+    align-self: center;
+    width: 168px; height: 168px; border-radius: 50%;
+    border: 1px solid var(--line);
+    background: radial-gradient(circle at 50% 40%, rgba(60, 26, 10, .92), rgba(16, 8, 4, .95) 70%);   /* no backdrop-filter: it clips the glow to a box */
+    color: var(--accent);
+    display: grid; place-items: center; cursor: pointer;
+  }
+  #play svg { width: 56px; height: 56px; }
+  #play { position: relative; transition: border-color .6s ease; }
+  /* Glow behind the button; only its opacity animates (compositor-only, no repaints all night) */
+  #play::before {
+    content: ""; position: absolute; inset: -44px; border-radius: 50%; z-index: -1; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(122, 52, 16, .5) 60%, rgba(122, 52, 16, 0));
+    opacity: 0; transition: opacity .8s ease;
+  }
+  #play.on { border-color: var(--accent-dim); }
+  #play.on::before { opacity: .75; animation: breathe 7s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { #play.on::before { animation: none; } }
+
+  section h2 { margin: 0 0 10px; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    font: inherit; font-size: 14px; cursor: pointer;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .chip.active { border-color: var(--accent); color: var(--accent); }
+  .chip .x { color: var(--dim); font-size: 16px; line-height: 1; padding-left: 2px; }
+  .empty { font-size: 13px; color: var(--dim); }
+
+  .slider { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin-bottom: 18px; }
+  .slider label { font-size: 14px; }
+  .slider output { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  input[type=range] {
+    grid-column: 1 / -1; width: 100%; margin: 6px 0 0;
+    -webkit-appearance: none; appearance: none; background: transparent; height: 28px;
+  }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+  input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 24px; height: 24px; margin-top: -10px;
+    border-radius: 50%; background: var(--accent); border: 4px solid var(--bg);
+  }
+  input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 4px solid var(--bg); }
+
+  form { display: flex; gap: 8px; }
+  form input {
+    flex: 1; min-width: 0; padding: 10px 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit;
+  }
+  form input::placeholder { color: var(--dim); }
+  form button {
+    padding: 10px 18px; border-radius: 999px; border: 1px solid var(--accent-dim);
+    background: transparent; color: var(--accent); font: inherit; cursor: pointer;
+  }
+  footer { font-size: 12px; color: var(--dim); text-align: center; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><img src="assets/art.webp" alt=""></div>
+<div id="splash" role="button" aria-label="Enter Cracklemaid">
+  <img src="assets/logo.webp" alt="Cracklemaid">
+  <span>Tap to sit by the fire</span>
+</div>
+<main>
+  <header>
+    <h1><img src="assets/logo.webp" alt="Cracklemaid"></h1>
+  </header>
+
+  <button id="play" aria-label="Play">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path id="icon" d="M8 5v14l11-7z"/></svg>
+  </button>
+
+  <section>
+    <h2>Presets</h2>
+    <div class="chips" id="presets"></div>
+  </section>
+
+  <section>
+    <h2>Tend the fire</h2>
+    <div class="slider">
+      <label for="size">Fire</label><output id="size-out"></output>
+      <input id="size" type="range" min="0" max="100">
+    </div>
+    <div class="slider">
+      <label for="crackle">Crackle</label><output id="crackle-out"></output>
+      <input id="crackle" type="range" min="0" max="100">
+    </div>
+    <div class="slider">
+      <label for="pops">Pops</label><output id="pops-out"></output>
+      <input id="pops" type="range" min="0" max="100">
+    </div>
+    <div class="slider">
+      <label for="warmth">Warmth</label><output id="warmth-out"></output>
+      <input id="warmth" type="range" min="0" max="100">
+    </div>
+    <div class="slider">
+      <label for="flicker">Flicker</label><output id="flicker-out"></output>
+      <input id="flicker" type="range" min="0" max="100">
+    </div>
+    <div class="slider">
+      <label for="breeze">Breeze</label><output id="breeze-out"></output>
+      <input id="breeze" type="range" min="0" max="100">
+    </div>
+  </section>
+
+  <section>
+    <h2>My sounds</h2>
+    <div class="chips" id="saved"></div>
+    <form id="save-form" style="margin-top:12px">
+      <input id="save-name" placeholder="Name this fire" maxlength="24" autocomplete="off">
+      <button type="submit">Save</button>
+    </form>
+  </section>
+
+  <footer>Use your phone's volume buttons. Keeps playing when locked.<br>Controls also appear on the lock screen.</footer>
+</main>
+
+<script>
+(() => {
+  const STORE_KEY = 'cracklemaid.v1';
+
+  // Slider order and the value a slider takes when a saved sound predates it
+  const SLIDERS = [
+    { key: 'size',    neutral: 50 },
+    { key: 'crackle', neutral: 50 },
+    { key: 'pops',    neutral: 35 },
+    { key: 'warmth',  neutral: 50 },
+    { key: 'flicker', neutral: 45 },
+    { key: 'breeze',  neutral: 0 },
+  ];
+  const sliders = SLIDERS.map(s => s.key);
+
+  const PRESETS = [
+    { name: 'Embers',     size: 10, crackle: 32, pops: 12, warmth: 62, flicker: 22, breeze: 0 },
+    { name: 'Campfire',   size: 50, crackle: 55, pops: 38, warmth: 45, flicker: 50, breeze: 8 },
+    { name: 'Bonfire',    size: 92, crackle: 72, pops: 58, warmth: 38, flicker: 62, breeze: 15 },
+    { name: 'Fireplace',  size: 38, crackle: 46, pops: 28, warmth: 72, flicker: 30, breeze: 0 },
+    { name: 'Wood stove', size: 30, crackle: 38, pops: 18, warmth: 94, flicker: 18, breeze: 0 },
+    { name: 'Windy camp', size: 62, crackle: 60, pops: 40, warmth: 40, flicker: 70, breeze: 85 },
+  ];
+
+  // Audio runs live through Web Audio: looped buffers are sample-accurate (no seam)
+  // and every control is an AudioParam, so changes glide instead of reloading.
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC({ latencyHint: 'playback' });
+  // Safari: treat this page as media playback (keeps going when locked, ignores the silent switch)
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+
+  // ---------- DSP kit ----------
+
+  let rs = (Math.random() * 0xffffffff) | 1;
+  const white = () => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; return rs / 2147483648; };
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const lrnd = (a, b) => a * Math.pow(b / a, Math.random());               // log-uniform
+  const pareto = (alpha, cap) => Math.min(cap, Math.pow(1 - Math.random(), -1 / alpha));   // >= 1, heavy tail
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const smooth = (v, a, b) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+  // Buffers are stored at the lowest rate their content needs (a roar has nothing
+  // above 1 kHz), which keeps memory sane with minute-plus loops. Fall back to a
+  // rate every browser accepts.
+  function makeBuffer(channels, seconds, rate) {
+    for (const r of [rate, 22050, ctx.sampleRate]) {
+      try { return ctx.createBuffer(channels, Math.round(r * seconds), r); } catch {}
+    }
+  }
+
+  function normPeak(x) {
+    let p = 0;
+    for (let i = 0; i < x.length; i++) { const a = Math.abs(x[i]); if (a > p) p = a; }
+    if (p) for (let i = 0; i < x.length; i++) x[i] /= p;
+    return x;
+  }
+  function mixInto(dst, src, at, g) {
+    const n = Math.min(src.length, dst.length - at);
+    for (let i = 0; i < n; i++) dst[at + i] += src[i] * g;
+  }
+  function highpass1(x, f, sr) {          // in-place one-pole highpass
+    const a = Math.exp(-2 * Math.PI * f / sr);
+    let px = 0, py = 0;
+    for (let i = 0; i < x.length; i++) { const v = x[i]; py = a * (py + v - px); px = v; x[i] = py; }
+    return x;
+  }
+  function lowpass1(x, f, sr) {           // in-place one-pole lowpass
+    const a = Math.exp(-2 * Math.PI * f / sr);
+    let y = 0;
+    for (let i = 0; i < x.length; i++) { y = x[i] + a * (y - x[i]); x[i] = y; }
+    return x;
+  }
+  // Short noise excitation: the moment a fibre breaks
+  function burst(sr, secs) {
+    const n = Math.max(1, Math.round(secs * sr)), x = new Float32Array(n);
+    for (let i = 0; i < n; i++) x[i] = white() * Math.exp(-2 * i / n);
+    return x;
+  }
+  // Excitation through a two-pole resonance with amplitude decay time tau; unit peak
+  function mode(ex, sr, fc, tau) {
+    const n = ex.length + Math.ceil(tau * sr * 7), y = new Float32Array(n);
+    const r = Math.exp(-1 / (tau * sr)), a1 = 2 * r * Math.cos(2 * Math.PI * Math.min(fc, sr * 0.45) / sr), a2 = r * r;
+    let y1 = 0, y2 = 0;
+    for (let i = 0; i < n; i++) { const v = (i < ex.length ? ex[i] : 0) + a1 * y1 - a2 * y2; y2 = y1; y1 = v; y[i] = v; }
+    return normPeak(y);
+  }
+  // Smoothed noise for envelopes and turbulence, length n
+  function slowNoise(n, sr, f) {
+    const x = new Float32Array(n);
+    for (let i = 0; i < n; i++) x[i] = white();
+    lowpass1(lowpass1(x, f, sr), f, sr);
+    let s = 0; for (let i = 0; i < n; i++) s += x[i] * x[i];
+    const k = 1 / Math.sqrt(s / n || 1);
+    for (let i = 0; i < n; i++) x[i] *= k;
+    return x;
+  }
+  // Fold the tail (N..N+F) into the head with an equal-power crossfade so the loop point vanishes
+  function fold(x, N, F) {
+    for (let i = 0; i < F; i++) {
+      const t = (i / F) * Math.PI / 2;
+      x[i] = x[N + i] * Math.cos(t) + x[i] * Math.sin(t);
+    }
+  }
+  // Slow periodic random walk (whole cycles over the loop), mean ~1: lulls and busy spells
+  function moodEnv(T, sigma) {
+    const K = 8, amp = [], ph = [];
+    let norm = 0;
+    for (let k = 1; k <= K; k++) { amp.push(1 / Math.sqrt(k)); ph.push(Math.random() * 2 * Math.PI); norm += 0.5 / k; }
+    const s = sigma / Math.sqrt(norm);
+    return t => { let v = 0; for (let k = 0; k < K; k++) v += amp[k] * Math.sin(2 * Math.PI * (k + 1) * t / T + ph[k]); return Math.exp(s * v - s * s / 2); };
+  }
+  // Self-exciting arrivals: each crackle makes the next more likely, so they cluster like real ones
+  function hawkes(T, mu, jump, tau, sigma) {
+    const env = moodEnv(T, sigma), dt = 0.001, dec = Math.exp(-dt / tau), times = [];
+    let ex = 0;
+    for (let t = 0; t < T; t += dt) {
+      ex *= dec;
+      if (Math.random() < (mu * env(t) + ex) * dt) { times.push(t + Math.random() * dt); ex += jump; }
+    }
+    return times;
+  }
+  // `count` random times at least `gap` apart around a loop of length T
+  function spacedTimes(T, count, gap) {
+    const out = [];
+    for (let tries = 0; out.length < count && tries < 5000; tries++) {
+      const t = Math.random() * T;
+      if (out.every(u => { const d = Math.abs(u - t); return Math.min(d, T - d) >= gap; })) out.push(t);
+    }
+    return out;
+  }
+
+  // ---------- fire sounds (each returns a mono, unit-peak event) ----------
+
+  // A single fine tick: a fibre snapping, through a low-Q resonance
+  function tick(sr, fc, q, bite) {
+    const ex = burst(sr, lrnd(0.00004, 0.0003));
+    const y = mode(ex, sr, fc, q / (Math.PI * fc));
+    mixInto(y, normPeak(ex), 0, bite);
+    return normPeak(highpass1(y, 400, sr));
+  }
+  // A crackle: a rapid irregular run of micro-fractures, 2-50 ms
+  function crackleBurst(sr, fLo = 1200, fHi = 6500) {
+    let n = 1; while (n < 16 && Math.random() < 0.78) n++;
+    const base = lrnd(fLo, fHi), parts = [];
+    let t = 0;
+    for (let k = 0; k < n; k++) {
+      if (k) t += lrnd(0.0003, 0.007);
+      parts.push([Math.round(t * sr), tick(sr, base * lrnd(0.75, 1.35), rnd(0.7, 3), rnd(0.2, 0.6)), rnd(0.2, 1)]);
+    }
+    const len = parts.reduce((m, [at, x]) => Math.max(m, at + x.length), 0), y = new Float32Array(len);
+    for (const [at, x, g] of parts) mixInto(y, x, at, g);
+    return normPeak(y);
+  }
+  // A snap: sharp crack plus a short woody body, sometimes a few splinters after
+  function snap(sr, bright = 1) {
+    const ex = burst(sr, lrnd(0.0001, 0.0005) / bright);
+    const y = new Float32Array(Math.ceil(sr * 0.14));
+    mixInto(y, normPeak(ex.slice()), 0, 0.9);
+    const modes = 2 + (Math.random() < 0.5);
+    for (let k = 0; k < modes; k++) {
+      const fc = lrnd(350 * bright, 2600 * bright);
+      mixInto(y, mode(ex, sr, fc, rnd(0.004, 0.02) * Math.pow(800 / fc, 0.4)), 0, rnd(0.25, 0.7));
+    }
+    const after = Math.floor(rnd(0, 6));
+    for (let k = 0; k < after; k++) mixInto(y, tick(sr, lrnd(2000, 7000), rnd(0.8, 2), 0.5), Math.round(rnd(0.002, 0.045) * sr), rnd(0.08, 0.35));
+    return normPeak(highpass1(y, 120, sr));
+  }
+  // The low thump of a steam pocket letting go; mild saturation adds harmonics small speakers can play
+  function thump(sr) {
+    const n = Math.ceil(rnd(0.1, 0.2) * sr), y = new Float32Array(n);
+    const f0 = rnd(75, 150), f1 = f0 * rnd(0.5, 0.7), tau = rnd(0.02, 0.045), a = Math.exp(-2 * Math.PI * 260 / sr);
+    let ph = 0, nz = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      ph += 2 * Math.PI * (f1 + (f0 - f1) * Math.exp(-t / 0.02)) / sr;
+      const w = white(); nz = w + a * (nz - w);
+      const env = Math.min(1, t / 0.0015) * Math.exp(-t / tau);
+      y[i] = Math.tanh(2 * env * (0.85 * Math.sin(ph) + 0.5 * nz));
+    }
+    return normPeak(y);
+  }
+  // A log shifting: dull knock, low resonance
+  function knock(sr) {
+    const ex = lowpass1(burst(sr, rnd(0.004, 0.012)), 900, sr);
+    const y = new Float32Array(Math.ceil(sr * 0.4));
+    mixInto(y, normPeak(ex.slice()), 0, 0.5);
+    for (let k = 0; k < 3; k++) mixInto(y, mode(ex, sr, lrnd(150, 650), rnd(0.02, 0.06)), 0, rnd(0.3, 0.8));
+    return normPeak(highpass1(y, 50, sr));
+  }
+  // The bed collapsing: a soft low rumble
+  function rumble(sr) {
+    const n = Math.ceil(1.4 * sr), y = new Float32Array(n), tau = rnd(0.15, 0.35);
+    for (let i = 0; i < n; i++) y[i] = white();
+    lowpass1(lowpass1(y, rnd(90, 180), sr), 220, sr);
+    for (let i = 0; i < n; i++) { const t = i / sr; y[i] = Math.tanh(3 * y[i] * Math.min(1, t / 0.03) * Math.exp(-t / tau)); }
+    return normPeak(highpass1(y, 35, sr));
+  }
+  // Air gets in after a settle and the flames flare up for a few seconds
+  function flare(sr) {
+    const n = Math.ceil(6 * sr), y = new Float32Array(n), rise = rnd(0.4, 0.9), tau = rnd(1, 2);
+    for (let i = 0; i < n; i++) y[i] = white();
+    highpass1(lowpass1(lowpass1(y, 1500, sr), 1500, sr), 280, sr);
+    const flut = slowNoise(n, sr, 6);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, env = t < rise ? (1 - Math.cos(Math.PI * t / rise)) / 2 : Math.exp(-(t - rise) / tau);
+      y[i] *= env * clamp(1 + 0.45 * flut[i], 0.2, 2);
+    }
+    return normPeak(y);
+  }
+  // Wet wood: a sputtering hiss of steam
+  function hiss(sr) {
+    const dur = rnd(1.2, 4), n = Math.ceil((dur + 0.8) * sr), y = new Float32Array(n), fc = lrnd(2500, 6000);
+    for (let i = 0; i < n; i++) y[i] = white();
+    const r = Math.exp(-Math.PI * fc / 2.5 / sr), a1 = 2 * r * Math.cos(2 * Math.PI * fc / sr), a2 = r * r;
+    let y1 = 0, y2 = 0;
+    const sput = slowNoise(n, sr, 12);
+    for (let i = 0; i < n; i++) {
+      const v = y[i] + a1 * y1 - a2 * y2; y2 = y1; y1 = v;
+      const t = i / sr, env = Math.min(1, t / 0.25) * clamp((dur + 0.8 - t) / 0.8);
+      y[i] = v * env * clamp(0.65 + 0.35 * sput[i], 0, 1.5);
+    }
+    return normPeak(y);
+  }
+
+  // ---------- layers ----------
+  // Every layer is its own looping buffer with a different length (all prime, 31-113 s)
+  // so the loops never line up. Events past the end wrap to the start, which makes
+  // event layers loop seamlessly; noise layers fold their tail into their head.
+
+  function eventLayer(seconds, rms, peak, fill) {
+    const buf = makeBuffer(2, seconds, 24000), N = buf.length, sr = buf.sampleRate;
+    const L = new Float32Array(N), R = new Float32Array(N);
+    const place = (ev, t, pan, amp) => {
+      const th = (clamp(pan, -1, 1) + 1) * Math.PI / 4, gl = Math.cos(th) * amp, gr = Math.sin(th) * amp;
+      let j = Math.round(t * sr) % N;
+      for (let i = 0; i < ev.length; i++, j++) { if (j >= N) j -= N; L[j] += ev[i] * gl; R[j] += ev[i] * gr; }
+    };
+    fill(place, sr, N / sr);
+    // Level by RMS, then round off the rare tall peaks with a soft clip. Crackle is spiky
+    // (peaks 20-40x the average), so a plain peak cap would leave it inaudible.
+    let sum = 0;
+    for (let i = 0; i < N; i++) sum += L[i] * L[i] + R[i] * R[i];
+    const k = rms / Math.sqrt(sum / (2 * N) || 1);
+    const bl = buf.getChannelData(0), br = buf.getChannelData(1);
+    let raw = 0; for (let i = 0; i < N; i++) raw = Math.max(raw, Math.abs(L[i]), Math.abs(R[i]));
+    buf.preClipPeak = raw * k;
+    for (let i = 0; i < N; i++) { bl[i] = peak * Math.tanh(L[i] * k / peak); br[i] = peak * Math.tanh(R[i] * k / peak); }
+    return buf;
+  }
+
+  // Stereo filtered noise: a shared part (the fire in front of you) plus a per-side part (width)
+  function noiseLayer(seconds, rate, width, rms, shape) {
+    const buf = makeBuffer(2, seconds, rate), N = buf.length, sr = buf.sampleRate, F = Math.round(sr * 2);
+    const c = new Float32Array(N + F);
+    for (let i = 0; i < N + F; i++) c[i] = white();
+    const out = [0, 1].map(ch => {
+      const x = new Float32Array(N + F);
+      for (let i = 0; i < N + F; i++) x[i] = c[i] * Math.sqrt(1 - width * width) + white() * width;
+      shape(x, sr);
+      fold(x, N, F);
+      return x;
+    });
+    let sum = 0;
+    for (const x of out) for (let i = F; i < N; i++) sum += x[i] * x[i];
+    const k = rms / Math.sqrt(sum / (2 * (N - F)));
+    out.forEach((x, ch) => { const d = buf.getChannelData(ch); for (let i = 0; i < N; i++) d[i] = x[i] * k; });
+    return buf;
+  }
+
+  // Control signals (mono, low rate): zero mean, minimum exactly -1, so
+  // gain * (1 + depth * m) stays positive for depth < 1. Returns { buf, ms } with ms = E[m²].
+  function controlLayer(seconds, gen) {
+    const buf = makeBuffer(1, seconds, 3000), N = buf.length, sr = buf.sampleRate, F = Math.round(sr * 2);
+    const x = gen(N, F, sr);
+    fold(x, N, F);
+    let mean = 0; for (let i = 0; i < N; i++) mean += x[i]; mean /= N;
+    let min = Infinity; for (let i = 0; i < N; i++) min = Math.min(min, x[i] - mean);
+    const d = buf.getChannelData(0); let ms = 0;
+    for (let i = 0; i < N; i++) { d[i] = (x[i] - mean) / -min; ms += d[i] * d[i]; }
+    return { buf, ms: ms / N };
+  }
+
+  const BUILD = {
+    // Low roar/body: pink-ish noise rolled off above ~300 Hz
+    roar: () => noiseLayer(61, 8000, 0.55, 0.12, (x, sr) => {
+      lowpass1(lowpass1(x, 300, sr), 300, sr); highpass1(x, 45, sr);
+    }),
+    // Flame breath: the lapping, airy band where flicker is most audible
+    whoosh: () => noiseLayer(47, 11025, 0.8, 0.08, (x, sr) => {
+      highpass1(highpass1(x, 380, sr), 380, sr); lowpass1(lowpass1(x, 2000, sr), 2000, sr);
+    }),
+    // Continuous fine crackle: dense, small, high ticks
+    fine: () => eventLayer(31, 0.012, 0.45, (place, sr, T) => {
+      for (const t of hawkes(T, 32, 14, 0.035, 0.5)) {
+        if (Math.random() < 0.12) place(crackleBurst(sr, 2500, 8000), t, rnd(-0.8, 0.8), 0.07 * pareto(2.6, 4));
+        else place(tick(sr, lrnd(2500, 9500), rnd(0.6, 2.2), rnd(0.2, 0.6)), t, rnd(-0.8, 0.8), 0.06 * pareto(2.6, 4));
+      }
+    }),
+    // Crackles: clustered runs of micro-fractures, a few per second
+    crackle: () => eventLayer(43, 0.02, 0.75, (place, sr, T) => {
+      for (const t of hawkes(T, 1.3, 9, 0.08, 0.6)) place(crackleBurst(sr), t, rnd(-0.75, 0.75), 0.3 * pareto(2.4, 4));
+    }),
+    // Medium snaps
+    snaps: () => eventLayer(59, 0.02, 0.8, (place, sr, T) => {
+      for (const t of hawkes(T, 0.35, 2.4, 0.25, 0.7)) place(snap(sr), t, rnd(-0.7, 0.7), 0.4 * pareto(2.5, 4));
+    }),
+    // Pops: thump + crack + a spray of embers behind; plus the odd hiss of wet wood
+    pops: () => eventLayer(79, 0.02, 0.95, (place, sr, T) => {
+      const times = spacedTimes(T, 9, 3);
+      times.slice(0, 7).forEach(t => placePop(place, sr, t, lrnd(0.35, 1)));
+      times.slice(7).forEach(t => place(hiss(sr), t, rnd(-0.5, 0.5), 0.12));
+    }),
+    // Log settling, and the rarest big pops
+    settle: () => eventLayer(113, 0.016, 0.85, (place, sr, T) => {
+      const times = spacedTimes(T, 5, 12);
+      times.slice(0, 2).forEach(t => placeSettle(place, sr, t));
+      times.slice(2).forEach(t => placePop(place, sr, t, lrnd(0.8, 1.2)));
+    }),
+  };
+
+  function placePop(place, sr, t, size) {
+    const pan = rnd(-0.6, 0.6);
+    place(thump(sr), t, pan * 0.5, size * rnd(0.45, 0.8));
+    place(snap(sr, 1.4), t + rnd(0, 0.003), pan, size);
+    const n = Math.round(rnd(6, 30) * Math.max(1, size)), span = rnd(0.25, 1.4);
+    for (let k = 0; k < n; k++) {
+      const dt = span * -Math.log(1 - Math.random()) / 3;     // denser right after the pop
+      place(tick(sr, lrnd(2200, 8000), rnd(0.8, 2.5), 0.4), t + 0.004 + dt, pan + rnd(-0.35, 0.35), size * rnd(0.04, 0.25) * Math.exp(-dt / span));
+    }
+    if (Math.random() < 0.4) for (let k = 0; k < 3; k++) place(crackleBurst(sr), t + rnd(0.02, span), pan + rnd(-0.3, 0.3), size * rnd(0.08, 0.25));
+  }
+
+  function placeSettle(place, sr, t) {
+    const pan = rnd(-0.4, 0.4);
+    let tt = t;
+    for (let k = 0, n = 1 + Math.floor(rnd(0, 3)); k < n; k++) { place(knock(sr), tt, pan + rnd(-0.1, 0.1), rnd(0.5, 1)); tt += rnd(0.06, 0.45); }
+    place(rumble(sr), t + rnd(0, 0.05), pan * 0.5, rnd(0.5, 0.9));
+    const span = rnd(1, 3.5);
+    for (let k = 0, n = Math.round(rnd(15, 45)); k < n; k++) {          // embers trickling down
+      const dt = span * Math.pow(Math.random(), 1.8);
+      place(tick(sr, lrnd(2500, 9000), rnd(1, 4), 0.3), t + 0.05 + dt, pan + rnd(-0.5, 0.5), rnd(0.03, 0.18) * (1 - 0.7 * dt / span));
+    }
+    place(flare(sr), t + rnd(0.1, 0.4), pan * 0.3, rnd(0.25, 0.45));
+    for (let k = 0, n = Math.round(rnd(3, 10)); k < n; k++) place(crackleBurst(sr), t + rnd(0.2, 3), pan + rnd(-0.4, 0.4), rnd(0.1, 0.35));
+  }
+
+  // Flicker: irregular flame lapping at three time scales, skewed so flare-ups
+  // are quick and the fall-back is slower. Played faster or slower via playbackRate.
+  const buildFlicker = () => controlLayer(97, (N, F, sr) => {
+    const n = N + F, slow = slowNoise(n, sr, 0.25), x = new Float32Array(n);
+    const band = (lo, hi) => { const b = slowNoise(n, sr, hi); highpass1(b, lo, sr); return normPeak(b); };
+    const mid = band(0.7, 2.4), fast = band(4, 9);
+    for (let i = 0; i < n; i++) x[i] = Math.exp(0.6 * (0.6 * slow[i] + 1.6 * mid[i] + 0.5 * fast[i]));
+    return x;
+  });
+  // Gusts: smooth swells every ~11 s with turbulence riding on them
+  const buildGust = () => controlLayer(89, (N, F, sr) => {
+    const n = N + F, x = new Float32Array(n), T = N / sr;
+    for (const t0 of spacedTimes(T, Math.round(T / 11), 4)) {
+      const A = lrnd(0.4, 1.2), rise = rnd(1.5, 4), fall = rnd(3, 8), s = Math.round(t0 * sr);
+      for (let i = 0, m = Math.round((rise + fall) * sr); i < m; i++) {
+        const t = i / sr, v = t < rise ? (1 - Math.cos(Math.PI * t / rise)) / 2 : (1 + Math.cos(Math.PI * (t - rise) / fall)) / 2;
+        x[(s + i) % N] += A * v;
+      }
+    }
+    for (let i = N; i < n; i++) x[i] = x[i - N];
+    const turb = slowNoise(n, sr, 1.5);
+    for (let i = 0; i < n; i++) x[i] += 0.3 * turb[i] * (0.3 + x[i]);
+    return x;
+  });
+
+  // ---------- loudness ----------
+  // Measured K-weighted power (sum over both channels) of each layer at unit gain,
+  // through the warmth filter at warmth 0/25/50/75/100. Combined with the gains and
+  // modulation depth this predicts the loudness of any setting, so every preset can
+  // sit at the same level. Re-measure with ?test (cracklemaid.measureLayers()).
+  const WARMTH_PTS = [0, 25, 50, 75, 100];
+  const LAYER_POWER = {
+    roar:    [0.024, 0.024, 0.024, 0.0239, 0.0235],
+    whoosh:  [0.0163, 0.016, 0.0145, 0.0108, 0.00597],
+    fine:    [0.000425, 0.000351, 0.000232, 0.000105, 3.36e-05],
+    crackle: [0.000979, 0.000915, 0.000768, 0.000507, 0.000224],
+    snaps:   [0.000785, 0.000774, 0.000756, 0.000696, 0.000542],
+    pops:    [0.000555, 0.000545, 0.000506, 0.000448, 0.000414],
+    settle:  [0.000395, 0.000392, 0.000382, 0.000357, 0.000323],
+  };
+  const TARGET_LUFS = -20;
+  const powerAt = (key, w) => {
+    const p = LAYER_POWER[key], f = clamp(w / 25, 0, 3.9999), i = Math.floor(f), u = f - i;
+    return Math.exp(Math.log(p[i]) * (1 - u) + Math.log(p[i + 1]) * u);
+  };
+
+  // ---------- settings -> sound ----------
+
+  const CRACK_LAYERS = ['fine', 'crackle', 'snaps'];
+  const cutoffHz = w => 14000 * Math.pow(1300 / 14000, w / 100);
+
+  function mapSettings(s) {
+    const z = s.size / 100, c = s.crackle / 100, p = s.pops / 100, fl = s.flicker / 100, br = s.breeze / 100;
+    const g = {
+      roar:    0.12 + 0.88 * Math.pow(z, 1.2),
+      whoosh:  0.04 + 0.96 * Math.pow(z, 1.7),
+      fine:    smooth(c, 0, 0.35),
+      crackle: smooth(c, 0.15, 0.7),
+      snaps:   smooth(c, 0.4, 1),
+      pops:    Math.pow(p, 1.3),
+      settle:  smooth(p, 0, 0.5),
+    };
+    // modulation depth as a fraction of each gain; keep the troughs above zero
+    const fit = (a, b, max) => { const s = Math.min(1, max / (a + b || 1)); return [a * s, b * s]; };
+    const [fRoar, gRoar] = fit(0.7 * fl, 0.55 * br, 0.9);
+    const [fWhoosh, gWhoosh] = fit(0.9 * fl, 0.75 * br, 0.95);
+    const [fCrack, gCrack] = fit(0.25 * fl, 0.5 * br, 0.8);
+    return {
+      g, fRoar, gRoar, fWhoosh, gWhoosh, fCrack, gCrack,
+      speed: 1.5 * Math.pow(0.45, z) * (1 + 0.5 * br),        // big fires lap slower; wind hurries them
+      cutoff: cutoffHz(s.warmth),
+      warmth: s.warmth,
+    };
+  }
+
+  function levelFor(m, B) {
+    const msF = B.flicker.ms, msG = B.gust.ms;
+    const modPow = (f, g) => 1 + f * f * msF + g * g * msG;
+    let power = 0;
+    for (const k in m.g) {
+      let mp = 1;
+      if (k === 'roar') mp = modPow(m.fRoar, m.gRoar);
+      else if (k === 'whoosh') mp = modPow(m.fWhoosh, m.gWhoosh);
+      else if (CRACK_LAYERS.includes(k)) mp = modPow(m.fCrack, m.gCrack);
+      power += m.g[k] * m.g[k] * mp * powerAt(k, m.warmth);
+    }
+    return Math.sqrt(Math.pow(10, (TARGET_LUFS + 0.691) / 10) / (power || 1e-9));
+  }
+
+  // Soft clip for the rare pile-up: transparent below ~0.3, never above 0.95
+  const SOFT_CURVE = (() => {
+    const n = 4097, c = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = 3 * (i / (n - 1) * 2 - 1); c[i] = 0.95 * Math.tanh(x / 0.95); }
+    return c;
+  })();
+  const BUTTERWORTH_Q_DB = -3.0103;   // Web Audio's lowpass Q is in dB; this is Q = 0.707
+
+  // ---------- graph ----------
+  // [roar, whoosh, pops, settle] ------------> gains -> warmth lowpass -> level -> soft clip -> out
+  // [fine, crackle, snaps] -> gains -> crack bus ---^
+  // flicker + gust control loops push the roar, whoosh and crack bus gains around
+  // Built from ready buffers, so the same graph can run in an OfflineAudioContext for measuring.
+
+  function buildGraph(ac, B) {
+    const out = ac.createGain();
+    const pre = ac.createGain(); pre.gain.value = 1 / 3;
+    const shaper = ac.createWaveShaper(); shaper.curve = SOFT_CURVE;
+    const level = ac.createGain();
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = BUTTERWORTH_Q_DB;
+    lp.connect(level); level.connect(pre); pre.connect(shaper); shaper.connect(out);
+    const crackBus = ac.createGain(); crackBus.connect(lp);
+
+    const sources = [];
+    const loop = (buf, dest) => {
+      const s = ac.createBufferSource(); s.buffer = buf; s.loop = true; s.connect(dest); sources.push(s); return s;
+    };
+    const gains = {};
+    for (const k in BUILD) {
+      const g = ac.createGain(); g.gain.value = 0;
+      g.connect(CRACK_LAYERS.includes(k) ? crackBus : lp);
+      loop(B[k], g);
+      gains[k] = g;
+    }
+    const depth = (src, param) => { const d = ac.createGain(); d.gain.value = 0; src.connect(d); d.connect(param); return d; };
+    const fSrc = loop(B.flicker.buf, ac.createGain()), gSrc = loop(B.gust.buf, ac.createGain());
+    const D = {
+      fRoar: depth(fSrc, gains.roar.gain), gRoar: depth(gSrc, gains.roar.gain),
+      fWhoosh: depth(fSrc, gains.whoosh.gain), gWhoosh: depth(gSrc, gains.whoosh.gain),
+      fCrack: depth(fSrc, crackBus.gain), gCrack: depth(gSrc, crackBus.gain),
+    };
+
+    function apply(s, glide = 0.12) {
+      const t = ac.currentTime, m = mapSettings(s);
+      const set = (param, v) => {
+        param.cancelScheduledValues(t);
+        if (glide) param.setTargetAtTime(v, t, glide); else param.setValueAtTime(v, t);
+      };
+      for (const k in gains) set(gains[k].gain, m.g[k]);
+      set(D.fRoar.gain, m.g.roar * m.fRoar);   set(D.gRoar.gain, m.g.roar * m.gRoar);
+      set(D.fWhoosh.gain, m.g.whoosh * m.fWhoosh); set(D.gWhoosh.gain, m.g.whoosh * m.gWhoosh);
+      set(D.fCrack.gain, m.fCrack); set(D.gCrack.gain, m.gCrack);
+      set(fSrc.playbackRate, m.speed);
+      set(lp.frequency, m.cutoff);
+      set(level.gain, levelFor(m, B));
+    }
+    const start = () => sources.forEach(s => s.start(0, Math.random() * s.buffer.duration));
+    return { out, apply, start, gains, lp };
+  }
+
+  let B = null, engine = null;
+  const master = ctx.createGain(); master.gain.value = 0;
+  master.connect(ctx.destination);
+
+  let buildMs = 0;
+  function ensureEngine() {
+    if (engine) return;
+    const t0 = performance.now();
+    B = {};
+    for (const k in BUILD) B[k] = BUILD[k]();
+    B.flicker = buildFlicker();
+    B.gust = buildGust();
+    engine = buildGraph(ctx, B);
+    engine.out.connect(master);
+    engine.apply(settings, 0);
+    engine.start();
+    buildMs = performance.now() - t0;
+  }
+
+  // ---------- state ----------
+
+  const $ = id => document.getElementById(id);
+  // Anything read back from storage is cleaned: missing or broken values (e.g. a
+  // sound saved before a slider existed) take that slider's neutral value.
+  const clean = p => {
+    const s = {};
+    SLIDERS.forEach(({ key, neutral }) => {
+      const v = p ? p[key] : undefined;
+      s[key] = typeof v === 'number' && Number.isFinite(v) ? Math.round(clamp(v, 0, 100)) : neutral;
+    });
+    return s;
+  };
+  const store = (() => {
+    try { const v = JSON.parse(localStorage.getItem(STORE_KEY)); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+  })();
+  let settings = clean(store.current || PRESETS[1]);
+  let saved = (Array.isArray(store.saved) ? store.saved : [])
+    .filter(p => p && typeof p.name === 'string' && p.name.trim())
+    .map(p => ({ name: p.name.slice(0, 24), ...clean(p) }));
+  let activeName = typeof store.activeName === 'string' ? store.activeName : 'Campfire';
+  const keyOf = s => sliders.map(k => s[k]).join(',');
+
+  function persist() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ current: settings, saved, activeName })); } catch {}
+  }
+
+  // ---------- play / pause ----------
+  // A silent looping <audio> element runs alongside Web Audio. It's what the OS
+  // sees as "media playing": it owns the lock-screen controls and keeps mobile
+  // browsers from suspending the page. It's silent, so its own loop gap is inaudible.
+
+  function silentWav() {
+    const n = 8000, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVE');
+    str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    str(36, 'data'); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);   // 8-bit silence
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  const keepAlive = new Audio(silentWav());
+  keepAlive.loop = true;
+  keepAlive.setAttribute('playsinline', '');
+
+  let playing = false, suspendTimer = null;
+
+  function play() {
+    if (playing) return;
+    playing = true;
+    clearTimeout(suspendTimer);
+    keepAlive.play().catch(() => {});
+    ensureEngine();
+    ctx.resume();
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(master.gain.value, t);
+    master.gain.linearRampToValueAtTime(1, t + 2.5);   // the fire comes up gently
+    updatePlayUI();
+  }
+
+  function pause() {
+    if (!playing) return;
+    playing = false;
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(master.gain.value, t);
+    master.gain.linearRampToValueAtTime(0, t + 0.5);
+    suspendTimer = setTimeout(() => { if (!playing) ctx.suspend(); }, 600);
+    keepAlive.pause();
+    updatePlayUI();
+  }
+
+  // Headphones unplugged, a call came in, etc.: the OS pauses the media element
+  keepAlive.addEventListener('pause', () => { if (playing) pause(); });
+
+  // Phone calls / Siri can interrupt the context; pick back up afterwards
+  const revive = () => { if (playing && ctx.state !== 'running') ctx.resume().catch(() => {}); };
+  ctx.addEventListener('statechange', revive);
+  document.addEventListener('visibilitychange', revive);
+
+  // ---------- media session (lock screen) ----------
+
+  const ms = 'mediaSession' in navigator ? navigator.mediaSession : null;
+  const art = new URL('assets/artwork-512.jpg', location.href).href;
+  function updateMediaSession() {
+    if (!ms) return;
+    ms.metadata = new MediaMetadata({
+      title: activeName || 'Custom',
+      artist: 'Cracklemaid',
+      artwork: [{ src: art, sizes: '512x512', type: 'image/jpeg' }],
+    });
+    ms.playbackState = playing ? 'playing' : 'paused';
+  }
+  if (ms) {
+    ms.setActionHandler('play', play);
+    ms.setActionHandler('pause', pause);
+    try { ms.setActionHandler('stop', pause); } catch {}
+  }
+
+  // ---------- UI ----------
+
+  function updatePlayUI() {
+    $('play').classList.toggle('on', playing);
+    document.body.classList.toggle('playing', playing);
+    $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    $('icon').setAttribute('d', playing ? 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z' : 'M8 5v14l11-7z');
+    updateMediaSession();
+  }
+
+  const words = (v, list) => list[Math.min(list.length - 1, Math.floor(v / 100 * list.length))];
+  function describe() {
+    const s = settings;
+    $('size-out').textContent = words(s.size, ['embers', 'small', 'campfire', 'big', 'bonfire']);
+    $('crackle-out').textContent = s.crackle === 0 ? 'none' : words(s.crackle, ['faint', 'gentle', 'lively', 'busy']);
+    $('pops-out').textContent = s.pops === 0 ? 'none' : words(s.pops, ['rare', 'soft', 'some', 'lots']);
+    $('warmth-out').textContent = words(s.warmth, ['bright', 'open', 'warm', 'mellow', 'muffled']);
+    $('flicker-out').textContent = s.flicker === 0 ? 'steady' : s.flicker + '%';
+    $('breeze-out').textContent = s.breeze === 0 ? 'still' : words(s.breeze, ['light', 'breezy', 'gusty', 'windy']);
+  }
+
+  function chip(label, active, onClick, onDelete) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (active ? ' active' : '');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    if (onDelete) {
+      const x = document.createElement('span');
+      x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Delete ' + label);
+      x.addEventListener('click', e => { e.stopPropagation(); onDelete(); });
+      b.append(x);
+    }
+    return b;
+  }
+
+  function renderChips() {
+    const matches = p => keyOf(p) === keyOf(settings);
+    const pr = $('presets'); pr.replaceChildren();
+    PRESETS.forEach(p => pr.append(chip(p.name, matches(p) && activeName === p.name, () => apply(p))));
+    const sv = $('saved'); sv.replaceChildren();
+    if (!saved.length) {
+      const e = document.createElement('span'); e.className = 'empty';
+      e.textContent = 'Tend the fire, then save it here.';
+      sv.append(e);
+    }
+    saved.forEach((p, i) => sv.append(chip(p.name, matches(p) && activeName === p.name, () => apply(p), () => {
+      saved.splice(i, 1); persist(); renderChips();
+    })));
+  }
+
+  function syncSliders() { sliders.forEach(k => { $(k).value = settings[k]; }); describe(); }
+
+  function apply(p) {
+    settings = clean(p);
+    activeName = p.name;
+    syncSliders(); renderChips(); persist(); updateMediaSession();
+    if (engine) engine.apply(settings, 0.5);   // presets crossfade a little slower, like the fire settling
+  }
+
+  sliders.forEach(k => $(k).addEventListener('input', e => {
+    settings[k] = +e.target.value;
+    activeName = 'Custom';
+    describe(); renderChips(); persist(); updateMediaSession();
+    if (engine) engine.apply(settings);
+  }));
+
+  $('play').addEventListener('click', () => (playing ? pause() : play()));
+
+  $('save-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('save-name').value.trim() || 'Fire ' + (saved.length + 1);
+    const entry = { name, ...settings };
+    const existing = saved.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+    if (existing >= 0) saved[existing] = entry; else saved.push(entry);
+    activeName = name;
+    $('save-name').value = '';
+    $('save-name').blur();
+    persist(); renderChips(); updateMediaSession();
+  });
+
+  // Splash: brand art at full strength, then it dims into the backdrop (tap skips)
+  const enter = () => document.body.classList.add('entered');
+  $('splash').addEventListener('click', enter);
+  setTimeout(enter, 2600);
+
+  ctx.suspend();
+  syncSliders();
+  renderChips();
+  updatePlayUI();
+  // Synthesize the fire once the splash has painted, so the first tap on play is instant
+  requestAnimationFrame(() => setTimeout(ensureEngine, 60));
+
+  // ---------- test hooks (?test only) ----------
+  if (/[?&]test\b/.test(location.search)) {
+    const kWeight = (x, sr) => {   // BS.1770 K-weighting (48 kHz coefficients)
+      const st = [[1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585],
+                  [1, -2, 1, -1.99004745483398, 0.99007225036621]];
+      let y = x;
+      for (const [b0, b1, b2, a1, a2] of st) {
+        const o = new Float32Array(y.length); let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+        for (let i = 0; i < y.length; i++) { const v = b0 * y[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = y[i]; y2 = y1; y1 = v; o[i] = v; }
+        y = o;
+      }
+      return y;
+    };
+    const stats = buf => {
+      const sr = buf.sampleRate, chans = [0, 1].map(c => buf.getChannelData(c)), n = chans[0].length;
+      let sq = 0, peak = 0, kpow = 0;
+      const kw = chans.map(c => kWeight(c, sr));
+      chans.forEach((c, j) => { let s = 0; for (let i = 0; i < n; i++) { s += c[i] * c[i]; peak = Math.max(peak, Math.abs(c[i])); } sq += s / n / 2; let k = 0; for (let i = 0; i < n; i++) k += kw[j][i] * kw[j][i]; kpow += k / n; });
+      // momentary loudness, 400 ms windows: how far the loudest moment sits above the average
+      const w = Math.round(0.4 * sr); let maxM = -Infinity;
+      for (let s0 = 0; s0 + w <= n; s0 += w / 4) { let p = 0; for (const k of kw) for (let i = s0; i < s0 + w; i++) p += k[i] * k[i]; maxM = Math.max(maxM, -0.691 + 10 * Math.log10(p / w)); }
+      return { rmsDb: 10 * Math.log10(sq), peakDb: 20 * Math.log10(peak), lufs: -0.691 + 10 * Math.log10(kpow), maxMomentary: maxM };
+    };
+    const off = secs => new OfflineAudioContext(2, Math.round(secs * 48000), 48000);
+    window.cracklemaid = {
+      ctx, PRESETS, mapSettings, ensureEngine, get buildMs() { return buildMs; }, get B() { return B; }, get engine() { return engine; }, master, play, pause,
+      apply: p => apply(p), get settings() { return settings; },
+      // Full mix of a setting, rendered offline through the shipping graph
+      async render(s, secs = 60) {
+        ensureEngine();
+        const oc = off(secs), g = buildGraph(oc, B);
+        g.apply(clean(s), 0); g.out.connect(oc.destination); g.start();
+        return oc.startRendering();
+      },
+      async measure(s, secs = 60) { return stats(await this.render(s, secs)); },
+      // K-weighted power of each layer alone at unit gain through the warmth filter
+      async measureLayers(secs = 60) {
+        ensureEngine();
+        const table = {};
+        for (const k in BUILD) {
+          table[k] = [];
+          for (const w of WARMTH_PTS) {
+            const oc = off(Math.max(secs, B[k].duration)), s = oc.createBufferSource(), lp = oc.createBiquadFilter();
+            s.buffer = B[k]; s.loop = true; lp.type = 'lowpass'; lp.Q.value = BUTTERWORTH_Q_DB; lp.frequency.value = cutoffHz(w);
+            s.connect(lp); lp.connect(oc.destination); s.start(0, 0);
+            const st = stats(await oc.startRendering());
+            table[k].push(Math.pow(10, (st.lufs + 0.691) / 10));
+          }
+        }
+        return table;
+      },
+      layerStats: () => Object.fromEntries(Object.keys(BUILD).map(k => {
+        const b = B[k]; let s = 0, p = 0;
+        for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < d.length; i++) { s += d[i] * d[i]; p = Math.max(p, Math.abs(d[i])); } }
+        return [k, { secs: +b.duration.toFixed(1), rate: b.sampleRate, rms: Math.sqrt(s / (2 * b.length)).toFixed(4), peak: p.toFixed(3), preClipPeak: b.preClipPeak && b.preClipPeak.toFixed(2) }];
+      })),
+      levelFor: s => levelFor(mapSettings(clean(s)), B),
+      stats,
+    };
+  }
+})();
+</script>
+</body>
+</html>
