@@ -199,19 +199,19 @@
     { key: 'size',    neutral: 50 },
     { key: 'crackle', neutral: 50 },
     { key: 'pops',    neutral: 35 },
-    { key: 'warmth',  neutral: 50 },
+    { key: 'warmth',  neutral: 30 },
     { key: 'flicker', neutral: 45 },
     { key: 'breeze',  neutral: 0 },
   ];
   const sliders = SLIDERS.map(s => s.key);
 
   const PRESETS = [
-    { name: 'Embers',     size: 10, crackle: 32, pops: 12, warmth: 62, flicker: 22, breeze: 0 },
-    { name: 'Campfire',   size: 50, crackle: 55, pops: 38, warmth: 45, flicker: 50, breeze: 8 },
-    { name: 'Bonfire',    size: 92, crackle: 72, pops: 58, warmth: 38, flicker: 62, breeze: 15 },
-    { name: 'Fireplace',  size: 38, crackle: 46, pops: 28, warmth: 72, flicker: 30, breeze: 0 },
-    { name: 'Wood stove', size: 30, crackle: 38, pops: 18, warmth: 94, flicker: 18, breeze: 0 },
-    { name: 'Windy camp', size: 62, crackle: 60, pops: 40, warmth: 40, flicker: 70, breeze: 85 },
+    { name: 'Embers',     size: 18, crackle: 35, pops: 12, warmth: 40, flicker: 20, breeze: 0 },
+    { name: 'Campfire',   size: 50, crackle: 55, pops: 35, warmth: 20, flicker: 45, breeze: 5 },
+    { name: 'Bonfire',    size: 90, crackle: 75, pops: 55, warmth: 15, flicker: 60, breeze: 15 },
+    { name: 'Fireplace',  size: 40, crackle: 45, pops: 25, warmth: 55, flicker: 30, breeze: 0 },
+    { name: 'Wood stove', size: 30, crackle: 40, pops: 20, warmth: 85, flicker: 20, breeze: 0 },
+    { name: 'Windy camp', size: 60, crackle: 60, pops: 40, warmth: 20, flicker: 65, breeze: 85 },
   ];
 
   // Audio runs live through Web Audio: looped buffers are sample-accurate (no seam)
@@ -322,105 +322,81 @@
   }
 
   // ---------- fire sounds (each returns a mono, unit-peak event) ----------
+  // Measured against a real campfire recording: a fire is a quiet, nearly white
+  // sizzle with loud broadband crackles on top (2-10 ms, ~9/s, ~2/s of them big),
+  // and very little low roar. Crackles are noise bursts, not tuned resonances.
 
-  // A single fine tick: a fibre snapping, through a low-Q resonance
-  function tick(sr, fc, q, bite) {
-    const ex = burst(sr, lrnd(0.00004, 0.0003));
-    const y = mode(ex, sr, fc, q / (Math.PI * fc));
-    mixInto(y, normPeak(ex), 0, bite);
-    return normPeak(highpass1(y, 400, sr));
-  }
-  // A crackle: a rapid irregular run of micro-fractures, 2-50 ms
-  function crackleBurst(sr, fLo = 1200, fHi = 6500) {
-    let n = 1; while (n < 16 && Math.random() < 0.78) n++;
-    const base = lrnd(fLo, fHi), parts = [];
-    let t = 0;
-    for (let k = 0; k < n; k++) {
-      if (k) t += lrnd(0.0003, 0.007);
-      parts.push([Math.round(t * sr), tick(sr, base * lrnd(0.75, 1.35), rnd(0.7, 3), rnd(0.2, 0.6)), rnd(0.2, 1)]);
+  // A crackle: a few micro-fractures inside `dur` seconds. `tone` darkens it,
+  // `body` adds a short woody resonance underneath (big ones have it).
+  function crack(sr, dur, tone, body = 0) {
+    const n = Math.ceil((dur * 2 + 0.002) * sr), y = new Float32Array(n);
+    let subs = 1; while (subs < 8 && Math.random() < 0.55) subs++;
+    for (let k = 0; k < subs; k++) {
+      const at = k ? Math.floor(Math.random() * dur * 0.8 * sr) : 0;
+      const tau = lrnd(0.00015, Math.max(0.0003, dur / 2.5)) * sr, g = k ? rnd(0.2, 0.9) : 1;
+      for (let i = at, m = Math.min(n, at + Math.ceil(tau * 6)); i < m; i++) y[i] += white() * g * Math.exp(-(i - at) / tau);
     }
-    const len = parts.reduce((m, [at, x]) => Math.max(m, at + x.length), 0), y = new Float32Array(len);
-    for (const [at, x, g] of parts) mixInto(y, x, at, g);
-    return normPeak(y);
-  }
-  // A snap: sharp crack plus a short woody body, sometimes a few splinters after
-  function snap(sr, bright = 1) {
-    const ex = burst(sr, lrnd(0.0001, 0.0005) / bright);
-    const y = new Float32Array(Math.ceil(sr * 0.14));
-    mixInto(y, normPeak(ex.slice()), 0, 0.9);
-    const modes = 2 + (Math.random() < 0.5);
-    for (let k = 0; k < modes; k++) {
-      const fc = lrnd(350 * bright, 2600 * bright);
-      mixInto(y, mode(ex, sr, fc, rnd(0.004, 0.02) * Math.pow(800 / fc, 0.4)), 0, rnd(0.25, 0.7));
+    if (tone < sr * 0.42) lowpass1(y, tone, sr);
+    normPeak(y);
+    let out = y;
+    if (body) {
+      const b = mode(y, sr, lrnd(200, 700), rnd(0.004, 0.012));
+      out = new Float32Array(b.length); mixInto(out, y, 0, 1); mixInto(out, b, 0, body);
     }
-    const after = Math.floor(rnd(0, 6));
-    for (let k = 0; k < after; k++) mixInto(y, tick(sr, lrnd(2000, 7000), rnd(0.8, 2), 0.5), Math.round(rnd(0.002, 0.045) * sr), rnd(0.08, 0.35));
-    return normPeak(highpass1(y, 120, sr));
+    return normPeak(highpass1(out, 90, sr));
   }
   // The low thump of a steam pocket letting go; mild saturation adds harmonics small speakers can play
   function thump(sr) {
     const n = Math.ceil(rnd(0.1, 0.2) * sr), y = new Float32Array(n);
-    const f0 = rnd(75, 150), f1 = f0 * rnd(0.5, 0.7), tau = rnd(0.02, 0.045), a = Math.exp(-2 * Math.PI * 260 / sr);
+    const f0 = rnd(80, 160), f1 = f0 * rnd(0.5, 0.7), tau = rnd(0.015, 0.04), a = Math.exp(-2 * Math.PI * 300 / sr);
     let ph = 0, nz = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       ph += 2 * Math.PI * (f1 + (f0 - f1) * Math.exp(-t / 0.02)) / sr;
       const w = white(); nz = w + a * (nz - w);
-      const env = Math.min(1, t / 0.0015) * Math.exp(-t / tau);
-      y[i] = Math.tanh(2 * env * (0.85 * Math.sin(ph) + 0.5 * nz));
+      const env = Math.min(1, t / 0.001) * Math.exp(-t / tau);
+      y[i] = Math.tanh(2 * env * (0.8 * Math.sin(ph) + 0.6 * nz));
     }
     return normPeak(y);
   }
   // A log shifting: dull knock, low resonance
   function knock(sr) {
-    const ex = lowpass1(burst(sr, rnd(0.004, 0.012)), 900, sr);
+    const ex = lowpass1(burst(sr, rnd(0.004, 0.012)), 1200, sr);
     const y = new Float32Array(Math.ceil(sr * 0.4));
-    mixInto(y, normPeak(ex.slice()), 0, 0.5);
-    for (let k = 0; k < 3; k++) mixInto(y, mode(ex, sr, lrnd(150, 650), rnd(0.02, 0.06)), 0, rnd(0.3, 0.8));
-    return normPeak(highpass1(y, 50, sr));
+    mixInto(y, normPeak(ex.slice()), 0, 0.6);
+    for (let k = 0; k < 3; k++) mixInto(y, mode(ex, sr, lrnd(150, 650), rnd(0.015, 0.05)), 0, rnd(0.3, 0.8));
+    return normPeak(highpass1(y, 60, sr));
   }
   // The bed collapsing: a soft low rumble
   function rumble(sr) {
-    const n = Math.ceil(1.4 * sr), y = new Float32Array(n), tau = rnd(0.15, 0.35);
+    const n = Math.ceil(1.2 * sr), y = new Float32Array(n), tau = rnd(0.12, 0.3);
     for (let i = 0; i < n; i++) y[i] = white();
-    lowpass1(lowpass1(y, rnd(90, 180), sr), 220, sr);
-    for (let i = 0; i < n; i++) { const t = i / sr; y[i] = Math.tanh(3 * y[i] * Math.min(1, t / 0.03) * Math.exp(-t / tau)); }
-    return normPeak(highpass1(y, 35, sr));
-  }
-  // Air gets in after a settle and the flames flare up for a few seconds
-  function flare(sr) {
-    const n = Math.ceil(6 * sr), y = new Float32Array(n), rise = rnd(0.4, 0.9), tau = rnd(1, 2);
-    for (let i = 0; i < n; i++) y[i] = white();
-    highpass1(lowpass1(lowpass1(y, 1500, sr), 1500, sr), 280, sr);
-    const flut = slowNoise(n, sr, 6);
-    for (let i = 0; i < n; i++) {
-      const t = i / sr, env = t < rise ? (1 - Math.cos(Math.PI * t / rise)) / 2 : Math.exp(-(t - rise) / tau);
-      y[i] *= env * clamp(1 + 0.45 * flut[i], 0.2, 2);
-    }
-    return normPeak(y);
+    lowpass1(lowpass1(y, rnd(120, 220), sr), 300, sr);
+    for (let i = 0; i < n; i++) { const t = i / sr; y[i] = Math.tanh(3 * y[i] * Math.min(1, t / 0.02) * Math.exp(-t / tau)); }
+    return normPeak(highpass1(y, 40, sr));
   }
   // Wet wood: a sputtering hiss of steam
   function hiss(sr) {
-    const dur = rnd(1.2, 4), n = Math.ceil((dur + 0.8) * sr), y = new Float32Array(n), fc = lrnd(2500, 6000);
+    const dur = rnd(1.2, 3.5), n = Math.ceil((dur + 0.8) * sr), y = new Float32Array(n), fc = lrnd(3000, 7000);
     for (let i = 0; i < n; i++) y[i] = white();
-    const r = Math.exp(-Math.PI * fc / 2.5 / sr), a1 = 2 * r * Math.cos(2 * Math.PI * fc / sr), a2 = r * r;
+    const r = Math.exp(-Math.PI * fc / 2 / sr), a1 = 2 * r * Math.cos(2 * Math.PI * fc / sr), a2 = r * r;
     let y1 = 0, y2 = 0;
-    const sput = slowNoise(n, sr, 12);
+    const sput = slowNoise(n, sr, 14);
     for (let i = 0; i < n; i++) {
       const v = y[i] + a1 * y1 - a2 * y2; y2 = y1; y1 = v;
-      const t = i / sr, env = Math.min(1, t / 0.25) * clamp((dur + 0.8 - t) / 0.8);
-      y[i] = v * env * clamp(0.65 + 0.35 * sput[i], 0, 1.5);
+      const t = i / sr, env = Math.min(1, t / 0.3) * clamp((dur + 0.8 - t) / 0.8);
+      y[i] = v * env * Math.pow(clamp(0.6 + 0.4 * sput[i], 0, 2), 2);
     }
     return normPeak(y);
   }
 
   // ---------- layers ----------
-  // Every layer is its own looping buffer with a different length (all prime, 31-113 s)
+  // Every layer is its own looping buffer with a different length (all prime, 37-89 s)
   // so the loops never line up. Events past the end wrap to the start, which makes
   // event layers loop seamlessly; noise layers fold their tail into their head.
 
-  function eventLayer(seconds, rms, peak, fill) {
-    const buf = makeBuffer(2, seconds, 24000), N = buf.length, sr = buf.sampleRate;
+  function eventLayer(seconds, rate, rms, peak, fill) {
+    const buf = makeBuffer(2, seconds, rate), N = buf.length, sr = buf.sampleRate;
     const L = new Float32Array(N), R = new Float32Array(N);
     const place = (ev, t, pan, amp) => {
       const th = (clamp(pan, -1, 1) + 1) * Math.PI / 4, gl = Math.cos(th) * amp, gr = Math.sin(th) * amp;
@@ -472,39 +448,48 @@
     return { buf, ms: ms / N };
   }
 
+  const HI = 32000;   // crackle is broadband to ~14 kHz, so these layers need a real top end
   const BUILD = {
-    // Low roar/body: pink-ish noise rolled off above ~300 Hz
-    roar: () => noiseLayer(61, 8000, 0.55, 0.12, (x, sr) => {
-      lowpass1(lowpass1(x, 300, sr), 300, sr); highpass1(x, 45, sr);
+    // Faint low roar: only a big fire has much of it
+    roar: () => noiseLayer(61, 8000, 0.5, 0.005, (x, sr) => {
+      lowpass1(lowpass1(x, 250, sr), 250, sr); highpass1(x, 40, sr);
     }),
-    // Flame breath: the lapping, airy band where flicker is most audible
-    whoosh: () => noiseLayer(47, 11025, 0.8, 0.08, (x, sr) => {
-      highpass1(highpass1(x, 380, sr), 380, sr); lowpass1(lowpass1(x, 2000, sr), 2000, sr);
+    // The bed: a dense sizzle of tiny fractures, nearly white, slightly clustered
+    sizzle: () => eventLayer(37, HI, 0.014, 0.6, (place, sr, T) => {
+      // a continuous hiss that sputters a little, one independent strand per side
+      const N = Math.round(T * sr), F = Math.round(sr * 0.5);
+      for (const pan of [-1, 1]) {
+        const x = new Float32Array(N + F), sput = slowNoise(N + F, sr, 12);
+        for (let i = 0; i < N + F; i++) x[i] = white() * clamp(1 + 0.35 * sput[i], 0.2, 2);
+        highpass1(highpass1(x, 350, sr), 350, sr); lowpass1(x, 13000, sr);
+        fold(x, N, F);
+        place(x.subarray(0, N), 0, pan, 0.18);
+      }
+      for (const t of hawkes(T, 200, 30, 0.01, 0.35)) place(crack(sr, lrnd(0.0003, 0.002), lrnd(4000, 16000)), t, rnd(-0.85, 0.85), lrnd(0.15, 1));
     }),
-    // Continuous fine crackle: dense, small, high ticks
-    fine: () => eventLayer(31, 0.012, 0.45, (place, sr, T) => {
-      for (const t of hawkes(T, 32, 14, 0.035, 0.5)) {
-        if (Math.random() < 0.12) place(crackleBurst(sr, 2500, 8000), t, rnd(-0.8, 0.8), 0.07 * pareto(2.6, 4));
-        else place(tick(sr, lrnd(2500, 9500), rnd(0.6, 2.2), rnd(0.2, 0.6)), t, rnd(-0.8, 0.8), 0.06 * pareto(2.6, 4));
+    // Crackles: broadband bursts, a handful per second, in clusters
+    crackle: () => eventLayer(43, HI, 0.013, 0.85, (place, sr, T) => {
+      for (const t of hawkes(T, 2.2, 6, 0.08, 0.5)) {
+        place(crack(sr, lrnd(0.002, 0.014), lrnd(3000, 16000), Math.random() < 0.2 ? rnd(0.1, 0.3) : 0), t, rnd(-0.8, 0.8), lrnd(0.06, 0.5));
       }
     }),
-    // Crackles: clustered runs of micro-fractures, a few per second
-    crackle: () => eventLayer(43, 0.02, 0.75, (place, sr, T) => {
-      for (const t of hawkes(T, 1.3, 9, 0.08, 0.6)) place(crackleBurst(sr), t, rnd(-0.75, 0.75), 0.3 * pareto(2.4, 4));
-    }),
-    // Medium snaps
-    snaps: () => eventLayer(59, 0.02, 0.8, (place, sr, T) => {
-      for (const t of hawkes(T, 0.35, 2.4, 0.25, 0.7)) place(snap(sr), t, rnd(-0.7, 0.7), 0.4 * pareto(2.5, 4));
+    // Big crackles: sharp, with a woody body, sometimes splintering into smaller ones
+    snaps: () => eventLayer(53, HI, 0.025, 0.9, (place, sr, T) => {
+      for (const t of hawkes(T, 0.5, 2, 0.3, 0.6)) {
+        const pan = rnd(-0.75, 0.75), a = lrnd(0.6, 1);
+        place(crack(sr, lrnd(0.006, 0.025), lrnd(4000, 16000), Math.random() < 0.5 ? rnd(0.15, 0.5) : 0), t, pan, a);
+        for (let k = 0, n = Math.floor(rnd(0, 5)); k < n; k++) place(crack(sr, lrnd(0.001, 0.005), lrnd(3000, 16000)), t + lrnd(0.005, 0.08), pan + rnd(-0.2, 0.2), a * rnd(0.1, 0.4));
+      }
     }),
     // Pops: thump + crack + a spray of embers behind; plus the odd hiss of wet wood
-    pops: () => eventLayer(79, 0.02, 0.95, (place, sr, T) => {
-      const times = spacedTimes(T, 9, 3);
-      times.slice(0, 7).forEach(t => placePop(place, sr, t, lrnd(0.35, 1)));
-      times.slice(7).forEach(t => place(hiss(sr), t, rnd(-0.5, 0.5), 0.12));
+    pops: () => eventLayer(67, HI, 0.02, 0.95, (place, sr, T) => {
+      const times = spacedTimes(T, 8, 3);
+      times.slice(0, 6).forEach(t => placePop(place, sr, t, lrnd(0.4, 1)));
+      times.slice(6).forEach(t => place(hiss(sr), t, rnd(-0.5, 0.5), 0.06));
     }),
     // Log settling, and the rarest big pops
-    settle: () => eventLayer(113, 0.016, 0.85, (place, sr, T) => {
-      const times = spacedTimes(T, 5, 12);
+    settle: () => eventLayer(89, 24000, 0.008, 0.9, (place, sr, T) => {
+      const times = spacedTimes(T, 4, 12);
       times.slice(0, 2).forEach(t => placeSettle(place, sr, t));
       times.slice(2).forEach(t => placePop(place, sr, t, lrnd(0.8, 1.2)));
     }),
@@ -512,28 +497,26 @@
 
   function placePop(place, sr, t, size) {
     const pan = rnd(-0.6, 0.6);
-    place(thump(sr), t, pan * 0.5, size * rnd(0.45, 0.8));
-    place(snap(sr, 1.4), t + rnd(0, 0.003), pan, size);
+    place(thump(sr), t, pan * 0.5, size * rnd(0.12, 0.25));
+    place(crack(sr, lrnd(0.004, 0.012), lrnd(6000, 16000), rnd(0.2, 0.6)), t + rnd(0, 0.002), pan, size);
     const n = Math.round(rnd(6, 30) * Math.max(1, size)), span = rnd(0.25, 1.4);
     for (let k = 0; k < n; k++) {
       const dt = span * -Math.log(1 - Math.random()) / 3;     // denser right after the pop
-      place(tick(sr, lrnd(2200, 8000), rnd(0.8, 2.5), 0.4), t + 0.004 + dt, pan + rnd(-0.35, 0.35), size * rnd(0.04, 0.25) * Math.exp(-dt / span));
+      place(crack(sr, lrnd(0.0005, 0.004), lrnd(4000, 16000)), t + 0.004 + dt, pan + rnd(-0.35, 0.35), size * rnd(0.05, 0.3) * Math.exp(-dt / span));
     }
-    if (Math.random() < 0.4) for (let k = 0; k < 3; k++) place(crackleBurst(sr), t + rnd(0.02, span), pan + rnd(-0.3, 0.3), size * rnd(0.08, 0.25));
   }
 
   function placeSettle(place, sr, t) {
     const pan = rnd(-0.4, 0.4);
     let tt = t;
-    for (let k = 0, n = 1 + Math.floor(rnd(0, 3)); k < n; k++) { place(knock(sr), tt, pan + rnd(-0.1, 0.1), rnd(0.5, 1)); tt += rnd(0.06, 0.45); }
-    place(rumble(sr), t + rnd(0, 0.05), pan * 0.5, rnd(0.5, 0.9));
-    const span = rnd(1, 3.5);
-    for (let k = 0, n = Math.round(rnd(15, 45)); k < n; k++) {          // embers trickling down
-      const dt = span * Math.pow(Math.random(), 1.8);
-      place(tick(sr, lrnd(2500, 9000), rnd(1, 4), 0.3), t + 0.05 + dt, pan + rnd(-0.5, 0.5), rnd(0.03, 0.18) * (1 - 0.7 * dt / span));
+    for (let k = 0, n = 1 + Math.floor(rnd(0, 3)); k < n; k++) { place(knock(sr), tt, pan + rnd(-0.1, 0.1), rnd(0.25, 0.5)); tt += rnd(0.06, 0.45); }
+    place(rumble(sr), t + rnd(0, 0.05), pan * 0.5, rnd(0.1, 0.2));
+    // embers trickling down, then the fire flares up: a few seconds of busier crackling
+    const span = rnd(2, 4.5);
+    for (let k = 0, n = Math.round(rnd(30, 70)); k < n; k++) {
+      const dt = span * Math.pow(Math.random(), 1.6);
+      place(crack(sr, lrnd(0.0005, 0.006), lrnd(3000, 12000), Math.random() < 0.15 ? 0.3 : 0), t + 0.05 + dt, pan + rnd(-0.5, 0.5), lrnd(0.05, 0.4) * (1 - 0.6 * dt / span));
     }
-    place(flare(sr), t + rnd(0.1, 0.4), pan * 0.3, rnd(0.25, 0.45));
-    for (let k = 0, n = Math.round(rnd(3, 10)); k < n; k++) place(crackleBurst(sr), t + rnd(0.2, 3), pan + rnd(-0.4, 0.4), rnd(0.1, 0.35));
   }
 
   // Flicker: irregular flame lapping at three time scales, skewed so flare-ups
@@ -546,7 +529,7 @@
     return x;
   });
   // Gusts: smooth swells every ~11 s with turbulence riding on them
-  const buildGust = () => controlLayer(89, (N, F, sr) => {
+  const buildGust = () => controlLayer(83, (N, F, sr) => {
     const n = N + F, x = new Float32Array(n), T = N / sr;
     for (const t0 of spacedTimes(T, Math.round(T / 11), 4)) {
       const A = lrnd(0.4, 1.2), rise = rnd(1.5, 4), fall = rnd(3, 8), s = Math.round(t0 * sr);
@@ -563,20 +546,21 @@
 
   // ---------- loudness ----------
   // Measured K-weighted power (sum over both channels) of each layer at unit gain,
-  // through the warmth filter at warmth 0/25/50/75/100. Combined with the gains and
-  // modulation depth this predicts the loudness of any setting, so every preset can
-  // sit at the same level. Re-measure with ?test (cracklemaid.measureLayers()).
+  // through the warmth filter at warmth 0/25/50/75/100. From these the page predicts
+  // the loudness of any setting. Re-measure with ?test (cracklemaid.measureLayers()).
   const WARMTH_PTS = [0, 25, 50, 75, 100];
   const LAYER_POWER = {
-    roar:    [0.024, 0.024, 0.024, 0.0239, 0.0235],
-    whoosh:  [0.0163, 0.016, 0.0145, 0.0108, 0.00597],
-    fine:    [0.000425, 0.000351, 0.000232, 0.000105, 3.36e-05],
-    crackle: [0.000979, 0.000915, 0.000768, 0.000507, 0.000224],
-    snaps:   [0.000785, 0.000774, 0.000756, 0.000696, 0.000542],
-    pops:    [0.000555, 0.000545, 0.000506, 0.000448, 0.000414],
-    settle:  [0.000395, 0.000392, 0.000382, 0.000357, 0.000323],
+    roar:    [3.97e-05, 3.97e-05, 3.97e-05, 3.95e-05, 3.9e-05],
+    sizzle:  [0.000613, 0.000436, 0.000245, 0.000108, 3.94e-05],
+    crackle: [0.000465, 0.000358, 0.000226, 0.000118, 5.85e-05],
+    snaps:   [0.00146, 0.00114, 0.000773, 0.00049, 0.000341],
+    pops:    [0.000568, 0.000507, 0.000415, 0.000351, 0.000316],
+    settle:  [0.000123, 0.000115, 0.000104, 9.38e-05, 8.74e-05],
   };
-  const TARGET_LUFS = -20;
+  // Campfire plays at TARGET_LUFS. Warmth is a tone control, so its loss is made up in
+  // full; everything else is made up 80% of the way (at most ±8 dB), so turning the
+  // fire down still makes it quieter while the presets stay close together.
+  const TARGET_LUFS = -24, ANCHOR = 'Campfire', MAKEUP = 0.8, MAKEUP_MAX_DB = 8;
   const powerAt = (key, w) => {
     const p = LAYER_POWER[key], f = clamp(w / 25, 0, 3.9999), i = Math.floor(f), u = f - i;
     return Math.exp(Math.log(p[i]) * (1 - u) + Math.log(p[i + 1]) * u);
@@ -584,45 +568,48 @@
 
   // ---------- settings -> sound ----------
 
-  const CRACK_LAYERS = ['fine', 'crackle', 'snaps'];
-  const cutoffHz = w => 14000 * Math.pow(1300 / 14000, w / 100);
+  const CRACK_LAYERS = ['sizzle', 'crackle', 'snaps'];
+  const cutoffHz = w => 16000 * Math.pow(1200 / 16000, w / 100);
 
   function mapSettings(s) {
     const z = s.size / 100, c = s.crackle / 100, p = s.pops / 100, fl = s.flicker / 100, br = s.breeze / 100;
     const g = {
-      roar:    0.12 + 0.88 * Math.pow(z, 1.2),
-      whoosh:  0.04 + 0.96 * Math.pow(z, 1.7),
-      fine:    smooth(c, 0, 0.35),
-      crackle: smooth(c, 0.15, 0.7),
-      snaps:   smooth(c, 0.4, 1),
+      roar:    Math.pow(z, 1.5),
+      sizzle:  (0.25 + 0.75 * z) * (0.5 + 0.5 * c),
+      crackle: smooth(c, 0, 0.6) * (0.6 + 0.4 * z),
+      snaps:   smooth(c, 0.25, 1) * (0.5 + 0.5 * z),
       pops:    Math.pow(p, 1.3),
       settle:  smooth(p, 0, 0.5),
     };
     // modulation depth as a fraction of each gain; keep the troughs above zero
     const fit = (a, b, max) => { const s = Math.min(1, max / (a + b || 1)); return [a * s, b * s]; };
-    const [fRoar, gRoar] = fit(0.7 * fl, 0.55 * br, 0.9);
-    const [fWhoosh, gWhoosh] = fit(0.9 * fl, 0.75 * br, 0.95);
-    const [fCrack, gCrack] = fit(0.25 * fl, 0.5 * br, 0.8);
+    const [fRoar, gRoar] = fit(0.7 * fl, 0.5 * br, 0.9);
+    const [fCrack, gCrack] = fit(0.35 * fl, 0.6 * br, 0.85);
     return {
-      g, fRoar, gRoar, fWhoosh, gWhoosh, fCrack, gCrack,
+      g, fRoar, gRoar, fCrack, gCrack,
       speed: 1.5 * Math.pow(0.45, z) * (1 + 0.5 * br),        // big fires lap slower; wind hurries them
       cutoff: cutoffHz(s.warmth),
       warmth: s.warmth,
     };
   }
 
-  function levelFor(m, B) {
+  // Predicted K-weighted power at unit level (0 = warmth filter wide open)
+  function powerFor(m, B, warmth) {
     const msF = B.flicker.ms, msG = B.gust.ms;
     const modPow = (f, g) => 1 + f * f * msF + g * g * msG;
     let power = 0;
     for (const k in m.g) {
-      let mp = 1;
-      if (k === 'roar') mp = modPow(m.fRoar, m.gRoar);
-      else if (k === 'whoosh') mp = modPow(m.fWhoosh, m.gWhoosh);
-      else if (CRACK_LAYERS.includes(k)) mp = modPow(m.fCrack, m.gCrack);
-      power += m.g[k] * m.g[k] * mp * powerAt(k, m.warmth);
+      const mp = k === 'roar' ? modPow(m.fRoar, m.gRoar) : CRACK_LAYERS.includes(k) ? modPow(m.fCrack, m.gCrack) : 1;
+      power += m.g[k] * m.g[k] * mp * powerAt(k, warmth);
     }
-    return Math.sqrt(Math.pow(10, (TARGET_LUFS + 0.691) / 10) / (power || 1e-9));
+    return power || 1e-12;
+  }
+  function levelFor(m, B) {
+    const lufs = p => -0.691 + 10 * Math.log10(p);
+    const anchor = lufs(powerFor(mapSettings(PRESETS.find(p => p.name === ANCHOR)), B, 0));
+    const open = lufs(powerFor(m, B, 0)), filtered = lufs(powerFor(m, B, m.warmth));
+    const makeup = clamp(MAKEUP * (anchor - open), -MAKEUP_MAX_DB, MAKEUP_MAX_DB);
+    return Math.pow(10, (TARGET_LUFS - anchor + (open - filtered) + makeup) / 20);
   }
 
   // Soft clip for the rare pile-up: transparent below ~0.3, never above 0.95
@@ -634,9 +621,9 @@
   const BUTTERWORTH_Q_DB = -3.0103;   // Web Audio's lowpass Q is in dB; this is Q = 0.707
 
   // ---------- graph ----------
-  // [roar, whoosh, pops, settle] ------------> gains -> warmth lowpass -> level -> soft clip -> out
-  // [fine, crackle, snaps] -> gains -> crack bus ---^
-  // flicker + gust control loops push the roar, whoosh and crack bus gains around
+  // [roar, pops, settle] -------------------------> gains -> warmth lowpass -> level -> soft clip -> out
+  // [sizzle, crackle, snaps] -> gains -> crack bus ---^
+  // flicker + gust control loops push the roar and crack bus gains around
   // Built from ready buffers, so the same graph can run in an OfflineAudioContext for measuring.
 
   function buildGraph(ac, B) {
@@ -663,7 +650,6 @@
     const fSrc = loop(B.flicker.buf, ac.createGain()), gSrc = loop(B.gust.buf, ac.createGain());
     const D = {
       fRoar: depth(fSrc, gains.roar.gain), gRoar: depth(gSrc, gains.roar.gain),
-      fWhoosh: depth(fSrc, gains.whoosh.gain), gWhoosh: depth(gSrc, gains.whoosh.gain),
       fCrack: depth(fSrc, crackBus.gain), gCrack: depth(gSrc, crackBus.gain),
     };
 
@@ -674,8 +660,7 @@
         if (glide) param.setTargetAtTime(v, t, glide); else param.setValueAtTime(v, t);
       };
       for (const k in gains) set(gains[k].gain, m.g[k]);
-      set(D.fRoar.gain, m.g.roar * m.fRoar);   set(D.gRoar.gain, m.g.roar * m.gRoar);
-      set(D.fWhoosh.gain, m.g.whoosh * m.fWhoosh); set(D.gWhoosh.gain, m.g.whoosh * m.gWhoosh);
+      set(D.fRoar.gain, m.g.roar * m.fRoar); set(D.gRoar.gain, m.g.roar * m.gRoar);
       set(D.fCrack.gain, m.fCrack); set(D.gCrack.gain, m.gCrack);
       set(fSrc.playbackRate, m.speed);
       set(lp.frequency, m.cutoff);
@@ -926,10 +911,11 @@
       ctx, PRESETS, mapSettings, ensureEngine, get buildMs() { return buildMs; }, get B() { return B; }, get engine() { return engine; }, master, play, pause,
       apply: p => apply(p), get settings() { return settings; },
       // Full mix of a setting, rendered offline through the shipping graph
-      async render(s, secs = 60) {
+      async render(s, secs = 60, solo) {
         ensureEngine();
         const oc = off(secs), g = buildGraph(oc, B);
         g.apply(clean(s), 0); g.out.connect(oc.destination); g.start();
+        if (solo) for (const k in g.gains) if (k !== solo) g.gains[k].gain.setValueAtTime(0, 0);
         return oc.startRendering();
       },
       async measure(s, secs = 60) { return stats(await this.render(s, secs)); },
