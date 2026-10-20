@@ -32,7 +32,7 @@
   main { position: relative; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 28px; }
   header { display: flex; justify-content: center; }
   h1 { margin: 0; line-height: 0; }
-  h1 img { width: min(240px, 64vw); height: auto; filter: drop-shadow(0 4px 18px rgba(40, 12, 0, .6)); }
+  h1 img { width: min(170px, 44vw); height: auto; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, .55)); }
 
   /* Brand art: full strength on the splash, then dimmed to a bedside-dark backdrop */
   .bg {
@@ -60,7 +60,7 @@
     padding: max(14vh, env(safe-area-inset-top)) 16px max(6vh, env(safe-area-inset-bottom));
     cursor: pointer; transition: opacity 1s ease;
   }
-  #splash img { width: min(560px, 88vw); height: auto; filter: drop-shadow(0 6px 30px rgba(40, 10, 0, .6)); animation: rise 1.4s ease-out both; }
+  #splash img { width: min(440px, 84vw); max-height: 62vh; object-fit: contain; filter: drop-shadow(0 8px 30px rgba(0, 0, 0, .5)); animation: rise 1.4s ease-out both; }
   #splash span { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: rgba(255, 236, 214, .9); padding: 10px 20px; border-radius: 999px; background: rgba(24, 10, 4, .45); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); animation: rise 1.4s ease-out .6s both; }
   @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
   body.entered #splash { opacity: 0; pointer-events: none; }
